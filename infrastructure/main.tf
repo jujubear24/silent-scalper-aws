@@ -231,7 +231,7 @@ resource "aws_lambda_function" "file_processor" {
   environment {
     variables = {
       PROCESSED_TABLE_NAME   = aws_dynamodb_table.processed_data.name
-      QUARANTINE_BUCKET_NAME = aws_s3_bucket.quarantine.name
+      QUARANTINE_BUCKET_NAME = aws_s3_bucket.quarantine.bucket
     }
   }
 
