@@ -118,3 +118,153 @@ output "dynamodb_table_name" {
   description = "The name of the DynamoDB table for processed data."
   value       = aws_dynamodb_table.processed_data.name
 }
+
+# ==============================================================================
+# IAM ROLE FOR LAMBDA
+# ==============================================================================
+
+# This data source defines the "trust policy" for our IAM role.
+# It specifies that the AWS Lambda service is allowed to "assume" this role.
+# In simple terms, it lets a Lambda function use the permissions we will attach.
+data "aws_iam_policy_document" "lambda_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+# This is the IAM Role that our Lambda function will use.
+resource "aws_iam_role" "lambda_execution_role" {
+  name               = "silent-scalper-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+# This data source defines the permissions policy for our Lambda function.
+# It grants the specific permissions needed to interact with other AWS services.
+data "aws_iam_policy_document" "lambda_permissions" {
+  # Allow creating log groups and log streams in CloudWatch for logging.
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+
+  # Allow writing items to our DynamoDB table.
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.processed_data.arn]
+  }
+
+  # Allow reading files from the incoming S3 bucket.
+  statement {
+    effect = "Allow"
+    actions = [
+      "s3:GetObject"
+    ]
+    resources = ["${aws_s3_bucket.incoming_data.arn}/*"] # Note the /* for objects
+  }
+
+  # Allow moving failed files to the quarantine bucket.
+  statement {
+    effect = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject"
+    ]
+    # Permissions are needed for both the source and destination.
+    resources = [
+      "${aws_s3_bucket.incoming_data.arn}/*",
+      "${aws_s3_bucket.quarantine.arn}/*"
+    ]
+  }
+}
+
+# This resource attaches the permissions policy to our IAM role.
+resource "aws_iam_role_policy" "lambda_policy_attachment" {
+  name   = "silent-scalper-lambda-permissions"
+  role   = aws_iam_role.lambda_execution_role.id
+  policy = data.aws_iam_policy_document.lambda_permissions.json
+}
+
+
+# ==============================================================================
+# LAMBDA FUNCTION
+# ==============================================================================
+
+# This data source creates a zip archive of our Python code.
+# Terraform will create this zip file automatically before deploying the Lambda.
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda"
+  output_path = "${path.module}/lambda.zip"
+}
+
+# This is the Lambda function resource itself.
+resource "aws_lambda_function" "file_processor" {
+  # The function name.
+  function_name = "silent-scalper-file-processor"
+
+  # The IAM role the function will use.
+  role = aws_iam_role.lambda_execution_role.arn
+
+  # Path to the deployment package (the zip file we created).
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  # The function's entry point. Format is "filename.handler_function_name".
+  handler = "process_file.lambda_handler"
+  runtime = "python3.9"
+  timeout = 30 # seconds
+
+  # Pass environment variables to the Lambda function.
+  # This is how our Python code knows the names of our other resources.
+  environment {
+    variables = {
+      PROCESSED_TABLE_NAME   = aws_dynamodb_table.processed_data.name
+      QUARANTINE_BUCKET_NAME = aws_s3_bucket.quarantine.name
+    }
+  }
+
+  # Ensure the role and policy are created before the function.
+  depends_on = [
+    aws_iam_role_policy.lambda_policy_attachment
+  ]
+}
+
+
+# ==============================================================================
+# S3 BUCKET NOTIFICATION (The Trigger)
+# ==============================================================================
+
+# This resource grants S3 permission to invoke our Lambda function.
+resource "aws_lambda_permission" "allow_s3_invoke" {
+  statement_id  = "AllowS3Invoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.file_processor.arn
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.incoming_data.arn
+}
+
+# This resource configures the S3 bucket to send an event to our Lambda
+# whenever a new object is created. This is the trigger for our pipeline.
+resource "aws_s3_bucket_notification" "s3_trigger" {
+  bucket = aws_s3_bucket.incoming_data.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.file_processor.arn
+    events              = ["s3:ObjectCreated:*"]
+  }
+
+  # Ensure the Lambda permission is in place before setting up the notification.
+  depends_on = [aws_lambda_permission.allow_s3_invoke]
+}
