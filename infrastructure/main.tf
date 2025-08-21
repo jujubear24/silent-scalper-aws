@@ -223,7 +223,7 @@ resource "aws_lambda_function" "file_processor" {
 
   # The function's entry point. Format is "filename.handler_function_name".
   handler = "process_file.lambda_handler"
-  runtime = "python3.9"
+  runtime = "python3.12"
   timeout = 30 # seconds
 
   # Pass environment variables to the Lambda function.
