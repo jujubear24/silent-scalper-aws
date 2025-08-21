@@ -268,3 +268,57 @@ resource "aws_s3_bucket_notification" "s3_trigger" {
   # Ensure the Lambda permission is in place before setting up the notification.
   depends_on = [aws_lambda_permission.allow_s3_invoke]
 }
+
+
+# ==============================================================================
+# PHASE 2: MONITORING & ALERTING
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# SNS TOPIC FOR ALERTS
+# ------------------------------------------------------------------------------
+
+# This resource creates an SNS topic that will be used to send alerts.
+resource "aws_sns_topic" "error_alerts" {
+  name = "silent-scalper-error-alerts"
+}
+
+# This resource creates a subscription to the SNS topic.
+# IMPORTANT: You must replace "your-email@example.com" with your actual email.
+# After you run 'terraform apply', AWS will send a confirmation email to this
+# address. You MUST click the confirmation link in that email to activate
+# the subscription.
+resource "aws_sns_topic_subscription" "email_subscription" {
+  topic_arn = aws_sns_topic.error_alerts.arn
+  protocol  = "email"
+  endpoint  = "julesbahanyi@gmail.com" 
+}
+
+# ------------------------------------------------------------------------------
+# CLOUDWATCH ALARM
+# ------------------------------------------------------------------------------
+
+# This resource creates a CloudWatch alarm that monitors our Lambda function
+# for errors.
+resource "aws_cloudwatch_metric_alarm" "lambda_error_alarm" {
+  alarm_name          = "silent-scalper-lambda-error-alarm"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = "60" # in seconds
+  statistic           = "Sum"
+  threshold           = "1" # Trigger if there is 1 or more errors
+
+  # This links the alarm to our specific Lambda function.
+  dimensions = {
+    FunctionName = aws_lambda_function.file_processor.function_name
+  }
+
+  alarm_description = "This alarm triggers if the Silent Scalper Lambda function fails."
+
+  # This tells the alarm to send a message to our SNS topic when it triggers.
+  alarm_actions = [aws_sns_topic.error_alerts.arn]
+  ok_actions    = [aws_sns_topic.error_alerts.arn] # Also notify when the alarm state returns to OK
+}
+
