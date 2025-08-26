@@ -322,3 +322,137 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_alarm" {
   ok_actions    = [aws_sns_topic.error_alerts.arn] # Also notify when the alarm state returns to OK
 }
 
+# ==============================================================================
+# PHASE 3: API GATEWAY & READER LAMBDA
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# IAM ROLE FOR API LAMBDA
+# ------------------------------------------------------------------------------
+
+# A separate role for our new "reader" Lambda.
+# It follows the Principle of Least Privilege by only granting read access.
+resource "aws_iam_role" "api_lambda_role" {
+  name               = "silent-scalper-api-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+# The specific permissions for the API Lambda.
+data "aws_iam_policy_document" "api_lambda_permissions" {
+  # Standard CloudWatch logging permissions
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+  # Permission to read (scan) from our DynamoDB table.
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:Scan"]
+    resources = [aws_dynamodb_table.processed_data.arn]
+  }
+}
+
+# Attaching the permissions policy to the role.
+resource "aws_iam_role_policy" "api_lambda_policy" {
+  name   = "silent-scalper-api-lambda-permissions"
+  role   = aws_iam_role.api_lambda_role.id
+  policy = data.aws_iam_policy_document.api_lambda_permissions.json
+}
+
+# ------------------------------------------------------------------------------
+# API READER LAMBDA FUNCTION
+# ------------------------------------------------------------------------------
+
+# Zipping the new Lambda's code.
+data "archive_file" "api_lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/api"
+  output_path = "${path.module}/lambda_api.zip"
+}
+
+# The Lambda function resource for reading records.
+resource "aws_lambda_function" "api_records_reader" {
+  function_name = "silent-scalper-api-records-reader"
+  role          = aws_iam_role.api_lambda_role.arn
+
+  filename         = data.archive_file.api_lambda_zip.output_path
+  source_code_hash = data.archive_file.api_lambda_zip.output_base64sha256
+
+  handler = "get_records.lambda_handler"
+  runtime = "python3.12" # Using the latest runtime
+
+  environment {
+    variables = {
+      PROCESSED_TABLE_NAME = aws_dynamodb_table.processed_data.name
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.api_lambda_policy]
+}
+
+# ------------------------------------------------------------------------------
+# API GATEWAY (HTTP API)
+# ------------------------------------------------------------------------------
+
+# This creates the API Gateway itself. We use an HTTP API as it's simpler
+# and more cost-effective for this kind of direct Lambda integration.
+resource "aws_apigatewayv2_api" "http_api" {
+  name          = "silent-scalper-api"
+  protocol_type = "HTTP"
+  # This setting allows our frontend to make requests to the API.
+  cors_configuration {
+    allow_origins = ["*"] # For development. In production, you'd restrict this.
+    allow_methods = ["GET", "OPTIONS"]
+    allow_headers = ["Content-Type"]
+  }
+}
+
+# This resource creates the "integration" between API Gateway and our Lambda.
+# It tells API Gateway what to do when a request comes in.
+resource "aws_apigatewayv2_integration" "lambda_integration" {
+  api_id           = aws_apigatewayv2_api.http_api.id
+  integration_type = "AWS_PROXY" # Standard type for Lambda integrations
+  integration_uri  = aws_lambda_function.api_records_reader.invoke_arn
+}
+
+# This defines the public route. It connects a specific HTTP method (GET) and
+# path (/records) to our Lambda integration.
+resource "aws_apigatewayv2_route" "get_records_route" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "GET /records"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
+# This creates a "stage" which is a snapshot of the API, making it callable.
+# The $default stage is automatically invoked.
+resource "aws_apigatewayv2_stage" "default_stage" {
+  api_id      = aws_apigatewayv2_api.http_api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+# Permission for API Gateway to invoke our reader Lambda function.
+resource "aws_lambda_permission" "api_gateway_invoke" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api_records_reader.name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
+}
+
+# ------------------------------------------------------------------------------
+# OUTPUTS
+# ------------------------------------------------------------------------------
+
+# This output will print the final API endpoint URL in your terminal.
+output "api_endpoint_url" {
+  description = "The base URL for the API Gateway endpoint."
+  value       = aws_apigatewayv2_api.http_api.api_endpoint
+}
+
