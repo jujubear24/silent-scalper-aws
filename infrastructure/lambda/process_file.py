@@ -45,8 +45,6 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
     # The event contains a list of records; we process each one.
     for record in event["Records"]:
 
-        print(record["s3"]["non_existent_key"])
-
         source_bucket = record["s3"]["bucket"]["name"]
         # The object key is URL-encoded, so we decode it to handle spaces, etc.
         source_key = unquote_plus(record["s3"]["object"]["key"])
