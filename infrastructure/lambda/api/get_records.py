@@ -1,13 +1,26 @@
 import json
 import os
-from typing import Any, Dict
+from decimal import Decimal
+from typing import Any, Dict, List
 
 import boto3
-from boto3.dynamodb.conditions import Key
 
 # This is a best practice for performance.
 dynamodb = boto3.resource("dynamodb")
 PROCESSED_TABLE_NAME = os.environ.get("PROCESSED_TABLE_NAME", "")
+
+
+# This class tells the json.dumps function how to handle Decimal objects,
+# which are returned by DynamoDB for numeric values.
+class DecimalEncoder(json.JSONEncoder):
+    """A custom JSON encoder to handle DynamoDB's Decimal type."""
+
+    def default(self, o: Any) -> Any:
+        """Converts Decimal objects to integers."""
+        if isinstance(o, Decimal):
+            # You can also convert to float(o) if you expect decimal places.
+            return int(o)
+        return super(DecimalEncoder, self).default(o)
 
 
 def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
@@ -30,11 +43,16 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
         table = dynamodb.Table(PROCESSED_TABLE_NAME)
 
         # The .scan() operation reads every item in a table.
-        # For large tables, this can be slow and expensive. 
+        # For large tables, this can be slow and expensive.
         response = table.scan()
         items = response.get("Items", [])
 
-        print(f"Found {len(items)} items in DynamoDB.")
+        while "LastEvaluatedKey" in response:
+            print(f"Paginating... found {len(items)} items so far.")
+            response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            items.extend(response.get("Items", []))
+
+        print(f"Found a total of {len(items)} items in DynamoDB.")
 
         return {
             "statusCode": 200,
@@ -44,7 +62,7 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
                 "Access-Control-Allow-Headers": "Content-Type",
                 "Access-Control-Allow-Methods": "OPTIONS,GET",
             },
-            "body": json.dumps(items),
+            "body": json.dumps(items, cls=DecimalEncoder),
         }
 
     except Exception as e:
@@ -56,5 +74,3 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
             },
             "body": json.dumps({"error": "Could not retrieve records"}),
         }
-
-
