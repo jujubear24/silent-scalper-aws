@@ -396,63 +396,145 @@ resource "aws_lambda_function" "api_records_reader" {
 }
 
 # ------------------------------------------------------------------------------
-# API GATEWAY (HTTP API)
+# API GATEWAY (REST API)
 # ------------------------------------------------------------------------------
+resource "aws_api_gateway_rest_api" "default" {
+  name        = "silent-scalper-api"
+  description = "API for the Silent Scalper project"
+}
 
-# This creates the API Gateway itself. We use an HTTP API as it's simpler
-# and more cost-effective for this kind of direct Lambda integration.
-resource "aws_apigatewayv2_api" "http_api" {
-  name          = "silent-scalper-api"
-  protocol_type = "HTTP"
-  # This setting allows our frontend to make requests to the API.
-  cors_configuration {
-    allow_origins = ["*"] # For development. In production, you'd restrict this.
-    allow_methods = ["GET", "OPTIONS"]
-    allow_headers = ["Content-Type"]
+resource "aws_api_gateway_resource" "records" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  parent_id   = aws_api_gateway_rest_api.default.root_resource_id
+  path_part   = "records"
+}
+
+# --- GET Method for fetching records ---
+resource "aws_api_gateway_method" "get_records" {
+  rest_api_id      = aws_api_gateway_rest_api.default.id
+  resource_id      = aws_api_gateway_resource.records.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "lambda_get" {
+  rest_api_id             = aws_api_gateway_rest_api.default.id
+  resource_id             = aws_api_gateway_resource.records.id
+  http_method             = aws_api_gateway_method.get_records.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.api_records_reader.invoke_arn
+}
+
+# --- OPTIONS Method for CORS Preflight ---
+resource "aws_api_gateway_method" "options_records" {
+  rest_api_id   = aws_api_gateway_rest_api.default.id
+  resource_id   = aws_api_gateway_resource.records.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "options_records" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.records.id
+  http_method = aws_api_gateway_method.options_records.http_method
+  type        = "MOCK" # MOCK integration doesn't call a backend
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
   }
 }
 
-# This resource creates the "integration" between API Gateway and our Lambda.
-# It tells API Gateway what to do when a request comes in.
-resource "aws_apigatewayv2_integration" "lambda_integration" {
-  api_id           = aws_apigatewayv2_api.http_api.id
-  integration_type = "AWS_PROXY" # Standard type for Lambda integrations
-  integration_uri  = aws_lambda_function.api_records_reader.invoke_arn
+# --- CORS Response Headers ---
+resource "aws_api_gateway_method_response" "options_200" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.records.id
+  http_method = aws_api_gateway_method.options_records.http_method
+  status_code = "200"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true,
+    "method.response.header.Access-Control-Allow-Methods" = true,
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
 }
 
-# This defines the public route. It connects a specific HTTP method (GET) and
-# path (/records) to our Lambda integration.
-resource "aws_apigatewayv2_route" "get_records_route" {
-  api_id    = aws_apigatewayv2_api.http_api.id
-  route_key = "GET /records"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+resource "aws_api_gateway_integration_response" "options_200" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.records.id
+  http_method = aws_api_gateway_method.options_records.http_method
+  status_code = aws_api_gateway_method_response.options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'",
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'" # Be more specific in production
+  }
 }
 
-# This creates a "stage" which is a snapshot of the API, making it callable.
-# The $default stage is automatically invoked.
-resource "aws_apigatewayv2_stage" "default_stage" {
-  api_id      = aws_apigatewayv2_api.http_api.id
-  name        = "$default"
-  auto_deploy = true
+# --- Deployment and Stage ---
+resource "aws_api_gateway_deployment" "default" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.records.id,
+      aws_api_gateway_method.get_records.id,
+      aws_api_gateway_integration.lambda_get.id,
+      aws_api_gateway_method.options_records.id,
+      aws_api_gateway_integration.options_records.id
+    ]))
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
-# Permission for API Gateway to invoke our reader Lambda function.
+resource "aws_api_gateway_stage" "default" {
+  deployment_id = aws_api_gateway_deployment.default.id
+  rest_api_id   = aws_api_gateway_rest_api.default.id
+  stage_name    = "prod"
+}
+
+# ------------------------------------------------------------------------------
+# API GATEWAY SECURITY (API KEY & USAGE PLAN)
+# ------------------------------------------------------------------------------
+
+resource "aws_api_gateway_api_key" "default" {
+  name = "silent-scalper-frontend-key"
+}
+
+resource "aws_api_gateway_usage_plan" "default" {
+  name = "silent-scalper-usage-plan"
+  api_stages {
+    api_id = aws_api_gateway_rest_api.default.id
+    stage  = aws_api_gateway_stage.default.stage_name
+  }
+}
+
+resource "aws_api_gateway_usage_plan_key" "default" {
+  key_id        = aws_api_gateway_api_key.default.id
+  key_type      = "API_KEY"
+  usage_plan_id = aws_api_gateway_usage_plan.default.id
+}
+
+# ------------------------------------------------------------------------------
+# LAMBDA PERMISSION & OUTPUTS
+# ------------------------------------------------------------------------------
+
 resource "aws_lambda_permission" "api_gateway_invoke" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.api_records_reader.function_name
   principal     = "apigateway.amazonaws.com"
-
-  source_arn = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
+  source_arn    = "${aws_api_gateway_rest_api.default.execution_arn}/*/${aws_api_gateway_method.get_records.http_method}${aws_api_gateway_resource.records.path}"
 }
 
-# ------------------------------------------------------------------------------
-# OUTPUTS
-# ------------------------------------------------------------------------------
-
-# This output will print the final API endpoint URL in your terminal.
 output "api_endpoint_url" {
   description = "The base URL for the API Gateway endpoint."
-  value       = aws_apigatewayv2_api.http_api.api_endpoint
+  value       = aws_api_gateway_stage.default.invoke_url
 }
-

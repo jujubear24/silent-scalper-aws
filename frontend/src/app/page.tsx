@@ -1,17 +1,16 @@
-'use client'; // This page now uses state, so it must be a client component
+'use client';
 
 import { useState } from 'react';
 import RecordTable from "@/app/components/RecordTable";
 
 export default function Home() {
-  
-  const API_ENDPOINT = "https://jvemmyam75.execute-api.us-east-2.amazonaws.com/records";
+  const API_ENDPOINT = process.env.NEXT_PUBLIC_API_ENDPOINT || "";
+  // Read the API key from environment variables
+  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
-  // State to trigger a re-render of the RecordTable component.
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleRefresh = () => {
-    // Incrementing the key will cause the RecordTable to re-mount and re-fetch data.
     setRefreshKey(oldKey => oldKey + 1);
   };
 
@@ -36,8 +35,14 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-5xl">
-        {/* We pass the refreshKey as the component's key prop */}
-        <RecordTable key={refreshKey} apiUrl={API_ENDPOINT} />
+        {API_ENDPOINT ? (
+          // Pass the API key as a prop to the table component
+          <RecordTable key={refreshKey} apiUrl={`${API_ENDPOINT}/records`} apiKey={API_KEY} />
+        ) : (
+          <p className="text-center text-red-500">
+            API endpoint is not configured. Please set NEXT_PUBLIC_API_ENDPOINT in your .env.local file.
+          </p>
+        )}
       </div>
     </main>
   );
