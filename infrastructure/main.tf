@@ -486,7 +486,16 @@ resource "aws_api_gateway_deployment" "default" {
       aws_api_gateway_method.get_records.id,
       aws_api_gateway_integration.lambda_get.id,
       aws_api_gateway_method.options_records.id,
-      aws_api_gateway_integration.options_records.id
+      aws_api_gateway_integration.options_records.id,
+      
+      # New uploads endpoint resources
+      aws_api_gateway_resource.uploads.id,
+      aws_api_gateway_method.post_uploads.id,
+      aws_api_gateway_integration.lambda_post_uploads.id,
+      aws_api_gateway_method.options_uploads.id,
+      aws_api_gateway_integration.options_uploads.id
+
+
     ]))
   }
   lifecycle {
@@ -537,4 +546,138 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
 output "api_endpoint_url" {
   description = "The base URL for the API Gateway endpoint."
   value       = aws_api_gateway_stage.default.invoke_url
+}
+
+# ------------------------------------------------------------------------------
+# UPLOADER LAMBDA & API ENDPOINT
+# ------------------------------------------------------------------------------
+
+# --- IAM Role for the Uploader Lambda ---
+resource "aws_iam_role" "uploader_lambda_role" {
+  name               = "silent-scalper-uploader-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "uploader_lambda_permissions" {
+  # Standard CloudWatch logging permissions
+  statement {
+    effect    = "Allow"
+    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+  # Permission to generate a presigned URL for putting objects into the incoming bucket.
+  # Note: The permission is on the s3:PutObject action.
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.incoming_data.arn}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "uploader_lambda_policy" {
+  name   = "silent-scalper-uploader-lambda-permissions"
+  role   = aws_iam_role.uploader_lambda_role.id
+  policy = data.aws_iam_policy_document.uploader_lambda_permissions.json
+}
+
+# --- Uploader Lambda Function ---
+data "archive_file" "uploader_lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/api"
+  output_path = "${path.module}/lambda_uploader.zip"
+}
+
+resource "aws_lambda_function" "api_create_upload_url" {
+  function_name = "silent-scalper-api-create-upload-url"
+  role          = aws_iam_role.uploader_lambda_role.arn
+
+  filename         = data.archive_file.uploader_lambda_zip.output_path
+  source_code_hash = data.archive_file.uploader_lambda_zip.output_base64sha256
+
+  handler = "create_upload_url.lambda_handler"
+  runtime = "python3.12"
+
+  environment {
+    variables = {
+      INCOMING_BUCKET_NAME = aws_s3_bucket.incoming_data.bucket
+    }
+  }
+  depends_on = [aws_iam_role_policy.uploader_lambda_policy]
+}
+
+# --- API Gateway Resources for the /uploads endpoint ---
+resource "aws_api_gateway_resource" "uploads" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  parent_id   = aws_api_gateway_rest_api.default.root_resource_id
+  path_part   = "uploads"
+}
+
+# POST method to create a new upload URL
+resource "aws_api_gateway_method" "post_uploads" {
+  rest_api_id      = aws_api_gateway_rest_api.default.id
+  resource_id      = aws_api_gateway_resource.uploads.id
+  http_method      = "POST"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "lambda_post_uploads" {
+  rest_api_id             = aws_api_gateway_rest_api.default.id
+  resource_id             = aws_api_gateway_resource.uploads.id
+  http_method             = aws_api_gateway_method.post_uploads.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.api_create_upload_url.invoke_arn
+}
+
+# OPTIONS method for CORS preflight on the new endpoint
+resource "aws_api_gateway_method" "options_uploads" {
+  rest_api_id   = aws_api_gateway_rest_api.default.id
+  resource_id   = aws_api_gateway_resource.uploads.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "options_uploads" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.uploads.id
+  http_method = aws_api_gateway_method.options_uploads.http_method
+  type        = "MOCK"
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "uploads_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.uploads.id
+  http_method = aws_api_gateway_method.options_uploads.http_method
+  status_code = "200"
+  response_models = { "application/json" = "Empty" }
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true,
+    "method.response.header.Access-Control-Allow-Methods" = true,
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "uploads_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.uploads.id
+  http_method = aws_api_gateway_method.options_uploads.http_method
+  status_code = aws_api_gateway_method_response.uploads_options_200.status_code
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'",
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+}
+
+# --- Lambda Permission ---
+resource "aws_lambda_permission" "api_gateway_invoke_uploader" {
+  statement_id  = "AllowAPIGatewayInvokeUploader"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api_create_upload_url.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.default.execution_arn}/*/${aws_api_gateway_method.post_uploads.http_method}${aws_api_gateway_resource.uploads.path}"
 }
