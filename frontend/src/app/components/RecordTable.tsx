@@ -1,91 +1,97 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
-type Record = {
+// Define a specific type for our records to avoid using 'any'
+interface ProcessedRecord {
   recordId: string;
   fileName: string;
-  fileSize: number;
   sourceBucket: string;
-};
+  fileSize: number;
+}
 
-type RecordTableProps = {
-  apiUrl: string;
-  apiKey: string; // Add a prop for the API key
-};
+interface RecordTableProps {
+  apiKey: string;
+  apiEndpoint: string;
+}
 
-export default function RecordTable({ apiUrl, apiKey }: RecordTableProps) {
-  const [records, setRecords] = useState<Record[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+export default function RecordTable({ apiKey, apiEndpoint }: RecordTableProps) {
+  const [records, setRecords] = useState<ProcessedRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchRecords = async () => {
-      // Check if the API key is provided before making a request
-      if (!apiKey) {
-        setError("API Key is not configured.");
-        setIsLoading(false);
-        return;
-      }
-
+      setLoading(true);
+      setError(null);
       try {
-        // Create request headers and add the API key
-        const headers = new Headers();
-        headers.append('x-api-key', apiKey);
-
-        const response = await fetch(apiUrl, { headers });
-
+        const response = await fetch(`${apiEndpoint}/records`, {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        });
         if (!response.ok) {
-          // Provide more specific error messages
-          if (response.status === 403) {
-            throw new Error('Forbidden: Invalid API Key.');
-          }
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error('Network response was not ok');
         }
-        const data: Record[] = await response.json();
+        const data: ProcessedRecord[] = await response.json();
         setRecords(data);
-      } catch (e: any) {
-        setError(e.message);
+      } catch (err) {
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('An unknown error occurred');
+        }
+        console.error('Fetch error:', err);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
 
     fetchRecords();
-  }, [apiUrl, apiKey]);
+  }, [apiKey, apiEndpoint]);
 
-  if (isLoading) {
-    return <p className="text-center text-gray-500">Loading records...</p>;
+  if (loading) {
+    return (
+      <div className="text-center p-8">
+        <p className="text-gray-500">Loading records...</p>
+      </div>
+    );
   }
 
   if (error) {
-    return <p className="text-center text-red-500">Error: {error}</p>;
+    return (
+      <div className="text-center p-8 bg-red-50 border border-red-200 rounded-lg">
+        <p className="text-red-600 font-semibold">Error: Failed to fetch records</p>
+        <p className="text-red-500 text-sm mt-1">{error}</p>
+      </div>
+    );
   }
 
   if (records.length === 0) {
-    return <p className="text-center text-gray-500">No records found.</p>;
+    return (
+      <div className="text-center p-8 bg-gray-50 border rounded-lg">
+        <p className="text-gray-600">No records found.</p>
+        <p className="text-gray-400 text-sm mt-1">Upload a file to see its data here.</p>
+      </div>
+    );
   }
-  
+
   return (
-    <div className="overflow-x-auto relative shadow-md sm:rounded-lg">
-      <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-        <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div className="overflow-x-auto">
+      <table className="min-w-full bg-white border border-gray-200 rounded-lg shadow-sm">
+        <thead className="bg-gray-50">
           <tr>
-            <th scope="col" className="py-3 px-6">File Name</th>
-            <th scope="col" className="py-3 px-6">File Size (Bytes)</th>
-            <th scope="col" className="py-3 px-6">Source Bucket</th>
-            <th scope="col" className="py-3 px-6">Record ID</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File Name</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File Size (Bytes)</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Record ID</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-gray-200">
           {records.map((record) => (
-            <tr key={record.recordId} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-              <th scope="row" className="py-4 px-6 font-medium text-gray-900 whitespace-nowrap dark:text-white">
-                {record.fileName}
-              </th>
-              <td className="py-4 px-6">{record.fileSize}</td>
-              <td className="py-4 px-6">{record.sourceBucket}</td>
-              <td className="py-4 px-6">{record.recordId}</td>
+            <tr key={record.recordId} className="hover:bg-gray-50">
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{record.fileName}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{record.fileSize.toLocaleString()}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{record.recordId}</td>
             </tr>
           ))}
         </tbody>
@@ -93,5 +99,6 @@ export default function RecordTable({ apiUrl, apiKey }: RecordTableProps) {
     </div>
   );
 }
+
 
 
