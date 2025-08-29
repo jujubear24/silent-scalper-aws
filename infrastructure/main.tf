@@ -46,6 +46,14 @@ resource "aws_s3_bucket" "incoming_data" {
   # Do NOT use this in a production environment where you want to protect data.
   force_destroy = true
 
+   # CORS RULE BLOCK
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["*"] # For development. In production, restrict to your domain.
+    expose_headers  = ["ETag"]
+  }
+
   tags = {
     Name        = "Silent Scalper - Incoming Data"
     Project     = "Silent Scalper"
@@ -487,7 +495,7 @@ resource "aws_api_gateway_deployment" "default" {
       aws_api_gateway_integration.lambda_get.id,
       aws_api_gateway_method.options_records.id,
       aws_api_gateway_integration.options_records.id,
-      
+
       # New uploads endpoint resources
       aws_api_gateway_resource.uploads.id,
       aws_api_gateway_method.post_uploads.id,

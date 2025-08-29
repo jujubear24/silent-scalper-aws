@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import RecordTable from "@/app/components/RecordTable";
+import FileUploader from "@/app/components/FileUploader"; // Import the new component
 
 export default function Home() {
   const API_ENDPOINT = process.env.NEXT_PUBLIC_API_ENDPOINT || "";
-  // Read the API key from environment variables
   const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
   const [refreshKey, setRefreshKey] = useState(0);
@@ -21,8 +21,17 @@ export default function Home() {
           Silent Scalper Dashboard
         </h1>
         <p className="text-center text-gray-600 dark:text-gray-300 mt-2">
-          Processed File Records
+          A Serverless Data Processing Pipeline
         </p>
+      </div>
+
+      <div className="w-full max-w-5xl mb-8">
+        {/* Add the FileUploader component here */}
+        <FileUploader
+          apiUrl={API_ENDPOINT}
+          apiKey={API_KEY}
+          onUploadSuccess={handleRefresh} // Automatically refresh the table on success
+        />
       </div>
 
       <div className="w-full max-w-5xl mb-4 flex justify-end">
@@ -36,7 +45,6 @@ export default function Home() {
 
       <div className="w-full max-w-5xl">
         {API_ENDPOINT ? (
-          // Pass the API key as a prop to the table component
           <RecordTable key={refreshKey} apiUrl={`${API_ENDPOINT}/records`} apiKey={API_KEY} />
         ) : (
           <p className="text-center text-red-500">
