@@ -531,6 +531,19 @@ resource "aws_api_gateway_usage_plan" "default" {
     api_id = aws_api_gateway_rest_api.default.id
     stage  = aws_api_gateway_stage.default.stage_name
   }
+  # RATE LIMITING SETTINGS
+  throttle_settings {
+    # This is the number of requests per second that API Gateway will allow
+    # in a short burst. It helps handle sudden, brief spikes in traffic.
+    burst_limit = 5
+
+    # This is the steady-state rate limit, in requests per second.
+    # Any requests that exceed this sustained rate will be throttled
+    # and receive a "429 Too Many Requests" error.
+    rate_limit = 10
+  }
+
+
 }
 
 resource "aws_api_gateway_usage_plan_key" "default" {
