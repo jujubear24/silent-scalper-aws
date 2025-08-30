@@ -12,10 +12,15 @@ Cloud-based companies often face two critical, costly issues with poorly designe
 The "**Silent Scalper**" project is a production-ready, serverless pipeline designed to solve this problem by creating a system that is both cost-efficient and infinitely scalable. It operates on a pay-per-use model, ensuring you only pay for the compute time you actually use, and it automatically scales to handle any workload, from a single file to millions.
 
 ## 2. Architecture
+
 This project is built on a robust, event-driven architecture using core AWS services. The entire infrastructure is managed declaratively using Terraform (Infrastructure as Code).
 
 ```mermaid
- flowchart TD
+ ---
+config:
+  theme: neutral
+---
+flowchart TD
  subgraph Ingestion_Flow["📥 Data Ingestion & Processing"]
         B["S3: incoming-data"]
         A["User via Browser"]
@@ -46,18 +51,21 @@ This project is built on a robust, event-driven architecture using core AWS serv
     K -- "11. Return JSON" --> J
     J -- "12. Return Data" --> I
     A --> n1
-
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#ccf,stroke:#333,stroke-width:1.5px
-    style C fill:#cfc,stroke:#333,stroke-width:1.5px
-    style D fill:#ccf,stroke:#333,stroke-width:1.5px
-    style E fill:#ccf,stroke:#333,stroke-width:1.5px
-    style F fill:#ffc,stroke:#333,stroke-width:1.5px
-    style G fill:#ffc,stroke:#333,stroke-width:1.5px
-    style H fill:#f9f,stroke:#333,stroke-width:2px
-    style I fill:#f9f,stroke:#333,stroke-width:2px
-    style K fill:#cfc,stroke:#333,stroke-width:1.5px
+    style B fill:#ccf,stroke:#333,stroke-width:1.5px,color:#D50000
+    style A fill:#f9f,stroke:#000,stroke-width:2px,color:#D50000
+    style C fill:#cfc,stroke:#333,stroke-width:1.5px,color:#D50000
+    style D fill:#ccf,stroke:#333,stroke-width:1.5px,color:#D50000
+    style E fill:#ccf,stroke:#333,stroke-width:1.5px,color:#D50000
+    style F fill:#ffc,stroke:#333,stroke-width:1.5px,color:#D50000
+    style G fill:#ffc,stroke:#333,stroke-width:1.5px,color:#D50000
+    style H fill:#f9f,stroke:#333,stroke-width:2px,color:#D50000
+    style J color:#D50000
+    style I fill:#f9f,stroke:#333,stroke-width:2px,color:#D50000
+    style K fill:#cfc,stroke:#333,stroke-width:1.5px,color:#D50000
+    style Ingestion_Flow color:#00C853
+    style Retrieval_Flow color:#FF6D00
 ```
+
 ## 3. Core Features
 
 * **Event-Driven Processing**: The entire pipeline is triggered automatically when a new file is uploaded to the S3 bucket.
@@ -170,4 +178,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ## 9. Author
 
-**Jules Bahanyi** - [https://github.com/jujubear24] - [https://www.linkedin.com/in/jules-bahanyi/]
+**Jules Bahanyi** - [GitHub](https://github.com/jujubear24) - [LinkedIn](https://www.linkedin.com/in/jules-bahanyi/)
