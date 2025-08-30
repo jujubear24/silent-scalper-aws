@@ -15,6 +15,7 @@ The "**Silent Scalper**" project is a production-ready, serverless pipeline desi
 This project is built on a robust, event-driven architecture using core AWS services. The entire infrastructure is managed declaratively using Terraform (Infrastructure as Code).
 
 ```mermaid
+ flowchart TD
  subgraph Ingestion_Flow["📥 Data Ingestion & Processing"]
         B["S3: incoming-data"]
         A["User via Browser"]
