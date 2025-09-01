@@ -1,0 +1,58 @@
+name: Deploy Terraform Infrastructure
+
+# This workflow runs on any push to the main branch.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**' # Only run if files in the infrastructure folder change
+
+jobs:
+  terraform:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    
+    # These permissions are needed to interact with GitHub's OIDC Token endpoint.
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        # We need to run all our terraform commands from the infrastructure directory.
+        working-directory: ./infrastructure
+
+    steps:
+      # Step 1: Check out the repository's code
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Terraform CLI
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Step 3: Configure AWS credentials using the secrets we created
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2 # Make sure this matches your provider region
+
+      # Step 4: Initialize Terraform
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      # Step 5: Run Terraform Plan
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color
+
+      # Step 6: Apply the changes
+      - name: Terraform Apply
+        id: apply
+        # The -auto-approve flag is necessary for running in a non-interactive CI/CD environment.
+        run: terraform apply -auto-approve
+
+        
