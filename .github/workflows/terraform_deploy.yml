@@ -15,12 +15,6 @@ jobs:
     name: 'Run Lambda Unit Tests'
     runs-on: ubuntu-latest
 
-    # FIX: Set a default AWS region for the test environment.
-    # This is required for the boto3 library to initialize correctly, even
-    # though the tests themselves use moto to mock the AWS services.
-    env:
-      AWS_REGION: us-east-2
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,6 +30,10 @@ jobs:
           pip install boto3 moto
 
       - name: Run unit tests
+        # FIX: Set the environment variable specifically for this step.
+        # This is a more forceful way to ensure the variable is available.
+        env:
+          AWS_REGION: us-east-2
         run: python -m unittest discover infrastructure/lambda/tests
 
   # ============================================================================
@@ -74,7 +72,8 @@ jobs:
         run: terraform plan -no-color
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approv
+
 
 
   
