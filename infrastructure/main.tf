@@ -676,6 +676,3 @@ output "api_endpoint_url" {
   description = "The base URL for the API Gateway endpoint."
   value       = aws_api_gateway_stage.default.invoke_url
 }
-
-
-# Trivial change to trigger workflow
