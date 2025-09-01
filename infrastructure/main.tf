@@ -503,6 +503,13 @@ resource "aws_api_gateway_deployment" "default" {
       aws_api_gateway_method.options_uploads.id,
       aws_api_gateway_integration.options_uploads.id
 
+      # New downloads endpoint resources
+      aws_api_gateway_resource.downloads.id,
+      aws_api_gateway_method.get_downloads.id,
+      aws_api_gateway_integration.lambda_get_downloads.id,
+      aws_api_gateway_method.options_downloads.id,
+      aws_api_gateway_integration.options_downloads.id
+
 
     ]))
   }
@@ -702,3 +709,163 @@ resource "aws_lambda_permission" "api_gateway_invoke_uploader" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.default.execution_arn}/*/${aws_api_gateway_method.post_uploads.http_method}${aws_api_gateway_resource.uploads.path}"
 }
+
+
+# ==============================================================================
+# PHASE 3.2: DOWNLOAD ENDPOINT
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# IAM ROLE FOR DOWNLOADER LAMBDA
+# ------------------------------------------------------------------------------
+
+resource "aws_iam_role" "downloader_lambda_role" {
+  name               = "silent-scalper-downloader-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "downloader_lambda_permissions" {
+  # Standard CloudWatch logging permissions
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+  # Permission to get objects from the incoming data bucket
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.incoming_data.arn}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "downloader_lambda_policy" {
+  name   = "silent-scalper-downloader-lambda-permissions"
+  role   = aws_iam_role.downloader_lambda_role.id
+  policy = data.aws_iam_policy_document.downloader_lambda_permissions.json
+}
+
+# ------------------------------------------------------------------------------
+# DOWNLOADER LAMBDA FUNCTION
+# ------------------------------------------------------------------------------
+
+data "archive_file" "downloader_lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/api"
+  # We need to explicitly list the source file to avoid including other files
+  # in the directory in our zip archive.
+  source_file = "${path.module}/lambda/api/create_download_url.py"
+  output_path = "${path.module}/lambda_downloader.zip"
+}
+
+resource "aws_lambda_function" "downloader_lambda" {
+  function_name = "silent-scalper-create-download-url"
+  role          = aws_iam_role.downloader_lambda_role.arn
+
+  filename         = data.archive_file.downloader_lambda_zip.output_path
+  source_code_hash = data.archive_file.downloader_lambda_zip.output_base64sha256
+
+  handler = "create_download_url.lambda_handler"
+  runtime = "python3.12"
+
+  environment {
+    variables = {
+      INCOMING_BUCKET_NAME = aws_s3_bucket.incoming_data.bucket
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.downloader_lambda_policy]
+}
+
+
+# ------------------------------------------------------------------------------
+# API GATEWAY RESOURCES FOR DOWNLOADS
+# ------------------------------------------------------------------------------
+
+resource "aws_api_gateway_resource" "downloads" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  parent_id   = aws_api_gateway_rest_api.default.root_resource_id
+  path_part   = "downloads"
+}
+
+resource "aws_api_gateway_method" "get_downloads" {
+  rest_api_id      = aws_api_gateway_rest_api.default.id
+  resource_id      = aws_api_gateway_resource.downloads.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "lambda_get_downloads" {
+  rest_api_id             = aws_api_gateway_rest_api.default.id
+  resource_id             = aws_api_gateway_resource.downloads.id
+  http_method             = aws_api_gateway_method.get_downloads.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.downloader_lambda.invoke_arn
+}
+
+# CORS configuration for the new /downloads endpoint
+resource "aws_api_gateway_method" "options_downloads" {
+  rest_api_id   = aws_api_gateway_rest_api.default.id
+  resource_id   = aws_api_gateway_resource.downloads.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "options_downloads" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.downloads.id
+  http_method = aws_api_gateway_method.options_downloads.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+
+  integration_response {
+    status_code = "200"
+    response_parameters = {
+      "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+      "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+    }
+    response_templates = {
+      "application/json" = ""
+    }
+  }
+}
+
+resource "aws_api_gateway_method_response" "options_200_downloads" {
+  rest_api_id = aws_api_gateway_rest_api.default.id
+  resource_id = aws_api_gateway_resource.downloads.id
+  http_method = aws_api_gateway_method.options_downloads.http_method
+  status_code = "200"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+# ------------------------------------------------------------------------------
+# LAMBDA PERMISSION FOR DOWNLOADER
+# ------------------------------------------------------------------------------
+
+resource "aws_lambda_permission" "api_gateway_invoke_downloader" {
+  statement_id  = "AllowAPIGatewayInvokeDownloader"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.downloader_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.default.execution_arn}/*/${aws_api_gateway_method.get_downloads.http_method}${aws_api_gateway_resource.downloads.path}"
+}
+
