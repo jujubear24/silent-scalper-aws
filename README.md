@@ -1,5 +1,9 @@
 # Silent Scalper - A Serverless Data Processing Pipeline on AWS
 
+<p align="center" style="font-size: 18px;">
+    Owned and Maintained by <a href="https://github.com/jujubear24">Jules Bahanyi</a> 
+</p>
+
 This project is a complete, production-grade, serverless data processing pipeline built on Amazon Web Services (AWS). It solves the common business problem of efficiently handling unpredictable data workloads by automatically scaling resources, ensuring high availability, and operating on a cost-effective pay-per-use model.
 
 The entire infrastructure is managed as code using Terraform, and the backend is supported by a full CI/CD pipeline with automated testing using GitHub Actions. The project is complete with a modern Next.js frontend for data visualization and interaction.
@@ -153,11 +157,10 @@ flowchart LR
 | Compute |  AWS Lambda (Python) |
 | Storage | AWS S3,  AWS DynamoDB |
 | API | AWS API Gateway (REST API with API Key Auth) |
-| Frontend | Next.js, React, TypeScript, Tailwind CSS | 
+| Frontend | Next.js, React, TypeScript, Tailwind CSS |
 |CI/ CD & Source Control | GitHub, GitHub Actions |
 | Testing | Python, ```unitest```, ```moto``` |
 |Monitoring and Alerting | AWS CloudWatch, AWS SNS |
-
 
 ## 5. Setup & Deployment
 
@@ -175,25 +178,25 @@ flowchart LR
 
 1. **Clone the Repository**:
 
-    ```
+    ```bash
     git clone git@github.com:jujubear24/silent-scalper-aws.git
     cd silent-scalper-aws
     ```
 
 2. **Navigate to the Infrastructure Directory**: 
 
-    ```
+    ```bash
     cd infrastructure
     ```
 
 3. **Initialize Terraform**:
 
-    ````
+    ````terraform
     terraform init
     ```
 4. **Deploy the Infrastructure**:
 
-    ```
+    ```terraform
     terraform apply
     ```
 
@@ -203,20 +206,20 @@ Confirm the deployment by typing yes. After completion, Terraform will output th
 
 1. **Navigate to the frontend directory**:
 
-    ```
+    ```bash
     cd ../frontend
     ```
 
 2. **Create Environment File**: Create a file named ```.env.local``` and add your API details:
 
-    ```
+    ```bash
     NEXT_PUBLIC_API_ENDPOINT=...your_api_endpoint_url_from_terraform...
     NEXT_PUBLIC_API_KEY=...your_api_key_from_the_aws_console...
     ```
 
 3. **Install Dependencies and Run Locally**:
 
-    ```
+    ```bash
     npm install
     npm run dev
     ```
@@ -228,18 +231,18 @@ To run the automated tests for the Lambda functions locally:
 
 1. **Navigate to the Lambda Directory:**
 
-    ```
+    ```bash
     cd ../infrastructure/lambda
     ```
 2. **Install Test Dependencies (if not already installed):**
 
-    ```
+    ```python
     pip install boto3 moto
     ```
 
 3. **Run the Tests:**
 
-    ```
+    ```python
     python -m unittest discover tests
     ```
 
@@ -268,7 +271,3 @@ The repository is organized as a monorepo to separate the infrastructure code fr
 ## 7. License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
-
-## 8. Author
-
-**Jules Bahanyi** - [GitHub](https://github.com/jujubear24) - [LinkedIn](https://www.linkedin.com/in/jules-bahanyi/)
