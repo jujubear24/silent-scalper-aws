@@ -6,7 +6,7 @@
 
 This project is a complete, production-grade, serverless data processing pipeline built on Amazon Web Services (AWS). It solves the common business problem of efficiently handling unpredictable data workloads by automatically scaling resources, ensuring high availability, and operating on a cost-effective pay-per-use model.
 
-The entire infrastructure is managed as code using Terraform, and the backend is supported by a full CI/CD pipeline with automated testing using GitHub Actions. The project is complete with a modern Next.js frontend for data visualization and interaction.
+The entire infrastructure is managed as code using Terraform, and the backend is supported by a full CI/CD pipeline with automated testing using GitHub Actions. The project is complete with a modern Next.js frontend for data visualization and interaction, hosted on AWS Amplify.
 
 **Live Demo:** <https://main.d27mjzbws6y41f.amplifyapp.com/>
 
@@ -158,6 +158,7 @@ flowchart LR
 | Storage | AWS S3,  AWS DynamoDB |
 | API | AWS API Gateway (REST API with API Key Auth) |
 | Frontend | Next.js, React, TypeScript, Tailwind CSS |
+| Frontend Hosting | AWS Amplify |
 |CI/ CD & Source Control | GitHub, GitHub Actions |
 | Testing | Python, ```unitest```, ```moto``` |
 |Monitoring and Alerting | AWS CloudWatch, AWS SNS |
